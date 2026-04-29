@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apps
+  namespace: vprofile
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apps
+                port:
+                  number: 8080
+

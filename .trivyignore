@@ -1,0 +1,7 @@
+# Trivy ignore list (keep as small and time-bound as possible)
+#
+# CVE-2025-66566 (org.lz4:lz4-java 1.8.1)
+# - Trivy reports: Status=affected, Fixed Version=(none published yet)
+# - Action: temporarily ignore until a fixed release is available, then remove this entry.
+CVE-2025-66566
+

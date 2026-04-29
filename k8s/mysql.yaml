@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: vprofile
+type: Opaque
+stringData:
+  MYSQL_ROOT_PASSWORD: admin123
+  MYSQL_USER: admin
+  MYSQL_PASSWORD: admin123
+  MYSQL_DATABASE: accounts
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+  namespace: vprofile
+spec:
+  # On-prem clusters (kubeadm) usually don't have AWS gp2.
+  # Either install a storage provisioner (e.g., NFS/OpenEBS/Rook) and set its StorageClass here,
+  # or remove this field to use the cluster default StorageClass.
+  # storageClassName: REPLACE_STORAGE_CLASS
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: vprofile
+spec:
+  # Single replica because it uses a single RWO PVC.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: k8s-self-managed-503459125797-dev-mysql
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          ports:
+            - containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 60
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mysql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: vprofile
+spec:
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+

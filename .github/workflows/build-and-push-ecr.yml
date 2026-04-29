@@ -1,0 +1,243 @@
+name: build-and-push-dockerhub
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+    branches: ["main"]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  DOCKERHUB_NAMESPACE: "01061875164"
+
+jobs:
+  prep:
+    if: >-
+      ${{
+        (
+          github.event_name == 'workflow_dispatch' &&
+          github.actor == 'Ahmedhessn'
+        ) ||
+        (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.actor.login == 'Ahmedhessn'
+        )
+      }}
+    runs-on: ubuntu-latest
+    outputs:
+      git_sha: ${{ steps.vars.outputs.git_sha }}
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+    steps:
+      - id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            GIT_SHA="${{ github.event.workflow_run.head_sha }}"
+          else
+            GIT_SHA="${{ github.sha }}"
+          fi
+          echo "git_sha=$GIT_SHA" >> "$GITHUB_OUTPUT"
+          # ECR repos have immutable tags enabled; make the tag globally unique per workflow run.
+          echo "image_tag=$GIT_SHA-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+
+  detect-changes:
+    needs: prep
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      repositories: ${{ steps.set-matrix.outputs.repositories }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prep.outputs.git_sha }}
+          fetch-depth: 0
+
+      - name: Compute changed files
+        id: diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="${{ needs.prep.outputs.git_sha }}"
+
+          # Compare against the first parent when possible (covers normal commits and merge commits).
+          if git cat-file -e "${SHA}^" 2>/dev/null; then
+            git diff --name-only "${SHA}^" "${SHA}" > changed_files.txt
+          else
+            # If this is the first commit in history, treat everything as changed.
+            git ls-files > changed_files.txt
+          fi
+
+          echo "Changed files:"
+          cat changed_files.txt || true
+
+      - name: Build dynamic image matrix
+        id: set-matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          changed() { grep -E -q "$1" changed_files.txt; }
+
+          apps=false
+          nginx=false
+          rabbitmq=false
+          memcached=false
+          mysql=false
+
+          # Apps image depends on the app source + pom + Dockerfile.
+          if changed '^(Dockerfile|pom\.xml|src/)'; then apps=true; fi
+
+          if changed '^docker/nginx/'; then nginx=true; fi
+          if changed '^docker/rabbitmq/'; then rabbitmq=true; fi
+          if changed '^docker/memcached/'; then memcached=true; fi
+          if changed '^docker/db/' || changed '^src/main/resources/db_backup\.sql$'; then mysql=true; fi
+
+          # Build matrix entries only for changed images.
+          matrix='{"image":[]}'
+          repos=()
+
+          # nginx image is optional; this workflow focuses on the 4 core images.
+
+          if [ "$apps" = "true" ]; then
+            matrix=$(python3 -c 'import json,sys; m=json.loads(sys.argv[1]); m["image"].append({"name":"apps","repository":"tomcatapp","context":".","dockerfile":"Dockerfile","trivy_exit_code":"1"}); print(json.dumps(m))' "$matrix")
+            repos+=("tomcatapp")
+          fi
+
+          if [ "$rabbitmq" = "true" ]; then
+            matrix=$(python3 -c 'import json,sys; m=json.loads(sys.argv[1]); m["image"].append({"name":"rabbitmq","repository":"rabbitmq","context":".","dockerfile":"docker/rabbitmq/Dockerfile","trivy_exit_code":"1"}); print(json.dumps(m))' "$matrix")
+            repos+=("rabbitmq")
+          fi
+
+          if [ "$memcached" = "true" ]; then
+            matrix=$(python3 -c 'import json,sys; m=json.loads(sys.argv[1]); m["image"].append({"name":"memcached","repository":"memcached","context":".","dockerfile":"docker/memcached/Dockerfile","trivy_exit_code":"1"}); print(json.dumps(m))' "$matrix")
+            repos+=("memcached")
+          fi
+
+          if [ "$mysql" = "true" ]; then
+            matrix=$(python3 -c 'import json,sys; m=json.loads(sys.argv[1]); m["image"].append({"name":"mysql","repository":"dbmysql","context":".","dockerfile":"docker/db/Dockerfile","trivy_exit_code":"0"}); print(json.dumps(m))' "$matrix")
+            repos+=("dbmysql")
+          fi
+
+          # Output matrix + comma-separated repos (used to selectively bump tags in kustomization.yaml)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "repositories=$(IFS=,; echo "${repos[*]:-}")" >> "$GITHUB_OUTPUT"
+
+  build-push:
+    needs: [prep, detect-changes]
+    if: ${{ needs.detect-changes.outputs.matrix != '{"image":[]}' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.detect-changes.outputs.matrix).image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prep.outputs.git_sha }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (load for scan)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          push: false
+          load: true
+          tags: local/${{ matrix.image.name }}:${{ needs.prep.outputs.git_sha }}
+
+      - name: Trivy image scan (block on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: local/${{ matrix.image.name }}:${{ needs.prep.outputs.git_sha }}
+          severity: CRITICAL,HIGH
+          format: table
+          exit-code: ${{ matrix.image.trivy_exit_code }}
+          version: v0.69.3
+          trivyignores: .trivyignore
+
+      - name: Push to Docker Hub (with provenance + SBOM)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          push: true
+          provenance: true
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.prep.outputs.git_sha }}
+          tags: |
+            ${{ env.DOCKERHUB_NAMESPACE }}/${{ matrix.image.repository }}:${{ needs.prep.outputs.image_tag }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Output image
+        run: |
+          echo "Pushed:"
+          echo "${{ env.DOCKERHUB_NAMESPACE }}/${{ matrix.image.repository }}:${{ needs.prep.outputs.image_tag }}"
+
+  update-k8s:
+    needs: [prep, detect-changes, build-push]
+    if: ${{ needs.detect-changes.outputs.repositories != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Update manifests on the main branch (GitOps-style).
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Update k8s image tag placeholders
+        env:
+          IMAGE_TAG: ${{ needs.prep.outputs.image_tag }}
+          CHANGED_REPOSITORIES: ${{ needs.detect-changes.outputs.repositories }}
+        run: |
+          set -euo pipefail
+          FILE="k8s/kustomization.yaml"
+          # Bump tags ONLY for images that were rebuilt/pushed in this run.
+          npm ci
+          node --loader ts-node/esm .github/scripts/update-kustomize-images.ts \
+            --file "$FILE" \
+            --image-tag "$IMAGE_TAG" \
+            --changed-repos "$CHANGED_REPOSITORIES"
+
+      - name: Commit and push if changed
+        env:
+          IMAGE_TAG: ${{ needs.prep.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No k8s changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/kustomization.yaml
+          git commit -m "chore(k8s): bump images to ${IMAGE_TAG}"
+          git push
+

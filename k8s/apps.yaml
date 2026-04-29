@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apps
+  namespace: vprofile
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: apps
+  template:
+    metadata:
+      labels:
+        app: apps
+    spec:
+      containers:
+        - name: apps
+          image: k8s-self-managed-503459125797-dev-apps
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          env:
+            - name: DB_HOST
+              value: mysql
+            - name: MEMCACHED_HOST
+              value: memcached
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apps
+  namespace: vprofile
+spec:
+  selector:
+    app: apps
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+

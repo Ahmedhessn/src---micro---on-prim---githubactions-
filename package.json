@@ -1,0 +1,12 @@
+{
+  "name": "vprofile-k8s-manifest-updater",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3",
+    "yaml": "^2.8.0"
+  }
+}
+
