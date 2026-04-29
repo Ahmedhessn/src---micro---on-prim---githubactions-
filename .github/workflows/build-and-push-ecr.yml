@@ -220,7 +220,7 @@ jobs:
           set -euo pipefail
           FILE="k8s/kustomization.yaml"
           # Bump tags ONLY for images that were rebuilt/pushed in this run.
-          npm ci
+          npm install --no-fund --no-audit
           node --loader ts-node/esm .github/scripts/update-kustomize-images.ts \
             --file "$FILE" \
             --image-tag "$IMAGE_TAG" \
