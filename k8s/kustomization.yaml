@@ -2,25 +2,25 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: vprofile
 resources:
-- mysql.yaml
-- memcached.yaml
-- rabbitmq.yaml
-- apps.yaml
-- ingress.yaml
-- hpa/mysql.yaml
-- hpa/memcached.yaml
-- hpa/rabbitmq.yaml
-- hpa/apps.yaml
+  - mysql.yaml
+  - memcached.yaml
+  - rabbitmq.yaml
+  - apps.yaml
+  - ingress.yaml
+  - hpa/mysql.yaml
+  - hpa/memcached.yaml
+  - hpa/rabbitmq.yaml
+  - hpa/apps.yaml
 images:
-- name: k8s-self-managed-503459125797-dev-apps
-  newName: 01061875164/tomcatapp
-  newTag: REPLACE_IMAGE_TAG
-- name: k8s-self-managed-503459125797-dev-rabbitmq
-  newName: 01061875164/rabbitmq
-  newTag: REPLACE_IMAGE_TAG
-- name: k8s-self-managed-503459125797-dev-memcached
-  newName: 01061875164/memcached
-  newTag: REPLACE_IMAGE_TAG
-- name: k8s-self-managed-503459125797-dev-mysql
-  newName: 01061875164/dbmysql
-  newTag: REPLACE_IMAGE_TAG
+  - name: k8s-self-managed-503459125797-dev-apps
+    newName: 01061875164/tomcatapp
+    newTag: REPLACE_IMAGE_TAG
+  - name: k8s-self-managed-503459125797-dev-rabbitmq
+    newName: 01061875164/rabbitmq
+    newTag: 20260429-1557-f81e4f4
+  - name: k8s-self-managed-503459125797-dev-memcached
+    newName: 01061875164/memcached
+    newTag: REPLACE_IMAGE_TAG
+  - name: k8s-self-managed-503459125797-dev-mysql
+    newName: 01061875164/dbmysql
+    newTag: REPLACE_IMAGE_TAG
