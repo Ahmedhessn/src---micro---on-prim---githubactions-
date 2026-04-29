@@ -22,6 +22,5 @@ images:
   newName: 01061875164/memcached
   newTag: REPLACE_IMAGE_TAG
 - name: k8s-self-managed-503459125797-dev-mysql
-  newTag: REPLACE_IMAGE_TAG
   newName: 01061875164/dbmysql
   newTag: REPLACE_IMAGE_TAG
