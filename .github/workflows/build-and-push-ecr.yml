@@ -2,10 +2,7 @@ name: build-and-push-dockerhub
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["ci"]
-    types: [completed]
-    branches: ["main"]
+  # Disabled automatic triggers in favor of per-service workflows.
 
 permissions:
   contents: read
