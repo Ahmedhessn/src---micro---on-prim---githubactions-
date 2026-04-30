@@ -14,13 +14,13 @@ resources:
 images:
   - name: k8s-self-managed-503459125797-dev-apps
     newName: 01061875164/tomcatapp
-    newTag: REPLACE_IMAGE_TAG
+    newTag: 20260430-0307-02e09cc
   - name: k8s-self-managed-503459125797-dev-rabbitmq
     newName: 01061875164/rabbitmq
-    newTag: 20260429-1557-f81e4f4
+    newTag: 20260430-0311-02e09cc
   - name: k8s-self-managed-503459125797-dev-memcached
     newName: 01061875164/memcached
-    newTag: REPLACE_IMAGE_TAG
+    newTag: 20260430-0312-02e09cc
   - name: k8s-self-managed-503459125797-dev-mysql
     newName: 01061875164/dbmysql
-    newTag: REPLACE_IMAGE_TAG
+    newTag: 20260430-0925-02e09cc
