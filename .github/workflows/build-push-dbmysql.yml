@@ -109,3 +109,28 @@ jobs:
           git commit -m "chore(k8s): bump dbmysql to ${IMAGE_TAG}"
           git push
 
+  notify:
+    needs: [build-push-and-bump]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack notification (success/failure)
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1.26.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "Build/Push `${{ github.repository }}` - `${{ github.workflow }}`: *${{ needs.build-push-and-bump.result }}*",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Workflow:* `${{ github.workflow }}`\n*Repo:* `${{ github.repository }}`\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Result:* *${{ needs.build-push-and-bump.result }}*\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Open in GitHub Actions>"
+                  }
+                }
+              ]
+            }
+
