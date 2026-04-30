@@ -11,15 +11,32 @@ stringData:
   MYSQL_DATABASE: accounts
 ---
 apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  # Bare-metal note:
+  # - This uses hostPath (local disk path on ONE node).
+  # - Replace the path with a real disk mount on the node (not the root filesystem).
+  hostPath:
+    path: /mnt/k8s/mysql
+    type: DirectoryOrCreate
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mysql-pvc
   namespace: vprofile
 spec:
-  # On-prem clusters (kubeadm) usually don't have AWS gp2.
-  # Either install a storage provisioner (e.g., NFS/OpenEBS/Rook) and set its StorageClass here,
-  # or remove this field to use the cluster default StorageClass.
-  # storageClassName: REPLACE_STORAGE_CLASS
+  # Manual binding to the static PV above (for clusters without a dynamic provisioner).
+  storageClassName: manual
+  volumeName: mysql-pv
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
