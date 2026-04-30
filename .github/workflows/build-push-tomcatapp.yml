@@ -113,11 +113,14 @@ jobs:
 
   notify:
     needs: [build-push-and-bump]
-    if: always()
+    # TODO: switch to Discord notification, then re-enable this job.
+    if: ${{ false }}
     runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Send Slack notification (success/failure)
-        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        if: ${{ env.SLACK_WEBHOOK_URL != '' }}
         uses: slackapi/slack-github-action@v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
