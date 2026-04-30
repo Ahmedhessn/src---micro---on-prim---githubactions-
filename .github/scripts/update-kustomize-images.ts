@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import YAML from "yaml";
 
 type Args = {
   file: string;
@@ -44,31 +43,99 @@ function repoFromNewName(newName: string): string {
   return parts[parts.length - 1] ?? newName;
 }
 
+function stripYamlString(value: string): string {
+  const v = value.trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    return v.slice(1, -1);
+  }
+  return v;
+}
+
+function updateKustomizeImagesInPlace(input: string, imageTag: string, changedRepos: Set<string>) {
+  const lines = input.split(/\r?\n/);
+
+  let imagesStart = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (/^images:\s*$/.test(lines[i] ?? "")) {
+      imagesStart = i;
+      break;
+    }
+  }
+
+  if (imagesStart === -1) {
+    return { output: input, updated: 0 };
+  }
+
+  // Find end of images section (next top-level key).
+  let imagesEnd = lines.length;
+  for (let i = imagesStart + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (line.trim() === "") continue;
+    if (/^[A-Za-z0-9_-]+:\s*$/.test(line)) {
+      imagesEnd = i;
+      break;
+    }
+  }
+
+  // Collect entry boundaries within images section.
+  const entryStarts: number[] = [];
+  for (let i = imagesStart + 1; i < imagesEnd; i += 1) {
+    if (/^-\s*name:\s*/.test(lines[i] ?? "")) entryStarts.push(i);
+  }
+  entryStarts.push(imagesEnd); // sentinel end
+
+  let updated = 0;
+  for (let e = 0; e < entryStarts.length - 1; e += 1) {
+    const start = entryStarts[e]!;
+    const end = entryStarts[e + 1]!;
+
+    let newNameLineIdx: number | null = null;
+    let newTagLineIdx: number | null = null;
+    let newNameValue: string | null = null;
+
+    for (let i = start; i < end; i += 1) {
+      const line = lines[i] ?? "";
+      const nm = line.match(/^\s*newName:\s*(.+)\s*$/);
+      if (nm) {
+        newNameLineIdx = i;
+        newNameValue = stripYamlString(nm[1] ?? "");
+      }
+      if (/^\s*newTag:\s*/.test(line)) {
+        newTagLineIdx = i;
+      }
+    }
+
+    if (!newNameValue) continue;
+    const repo = repoFromNewName(newNameValue);
+    if (changedRepos.size > 0 && !changedRepos.has(repo)) continue;
+
+    if (newTagLineIdx !== null) {
+      const line = lines[newTagLineIdx] ?? "";
+      const prefix = line.replace(/(\s*newTag:\s*).*/, "$1");
+      lines[newTagLineIdx] = `${prefix}${imageTag}`;
+      updated += 1;
+      continue;
+    }
+
+    // If missing newTag, insert it after newName line (or at end of entry).
+    const insertAfter = newNameLineIdx ?? start;
+    const indent = "  ";
+    lines.splice(insertAfter + 1, 0, `${indent}newTag: ${imageTag}`);
+    // Adjust indices because we mutated lines; safe because we don't reuse entry boundaries afterward.
+    updated += 1;
+    break;
+  }
+
+  return { output: lines.join("\n"), updated };
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const filePath = path.resolve(args.file);
 
   const raw = fs.readFileSync(filePath, "utf8");
-  const doc = YAML.parse(raw) as {
-    images?: Array<{ name?: string; newName?: string; newTag?: string }>;
-  };
-
-  const images = doc.images ?? [];
-
-  let updated = 0;
-  for (const img of images) {
-    const newName = (img.newName ?? "").trim();
-    if (!newName) continue;
-
-    const repo = repoFromNewName(newName);
-    if (args.changedRepos.size > 0 && !args.changedRepos.has(repo)) continue;
-
-    img.newTag = args.imageTag;
-    updated += 1;
-  }
-
-  const out = YAML.stringify(doc);
-  fs.writeFileSync(filePath, out, "utf8");
+  const { output, updated } = updateKustomizeImagesInPlace(raw, args.imageTag, args.changedRepos);
+  fs.writeFileSync(filePath, output, "utf8");
 
   // eslint-disable-next-line no-console
   console.log(`Updated ${updated} image tag(s) in ${args.file}`);

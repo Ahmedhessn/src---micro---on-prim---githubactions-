@@ -60,3 +60,28 @@ jobs:
           version: v0.69.3
           trivyignores: .trivyignore
 
+  notify:
+    needs: [build-test-scan]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack notification (success/failure)
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1.26.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "CI `${{ github.repository }}` - `${{ github.workflow }}`: *${{ needs.build-test-scan.result }}*",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Workflow:* `${{ github.workflow }}`\n*Repo:* `${{ github.repository }}`\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Result:* *${{ needs.build-test-scan.result }}*\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Open in GitHub Actions>"
+                  }
+                }
+              ]
+            }
+
