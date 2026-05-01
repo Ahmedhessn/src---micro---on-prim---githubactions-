@@ -12,7 +12,7 @@ resources:
   - hpa/rabbitmq.yaml
   - hpa/apps.yaml
 images:
-<<<<<<< HEAD
+
   - name: k8s-self-managed-503459125797-dev-apps
     newName: 01061875164/tomcatapp
     newTag: 20260430-0307-02e09cc
@@ -25,17 +25,3 @@ images:
   - name: k8s-self-managed-503459125797-dev-mysql
     newName: 01061875164/dbmysql
     newTag: 20260430-0925-02e09cc
-=======
-- name: k8s-self-managed-503459125797-dev-apps
-  newName: 01061875164/tomcatapp
-  newTag: 20260430-0307-02e09cc
-- name: k8s-self-managed-503459125797-dev-rabbitmq
-  newName: 01061875164/rabbitmq
-  newTag: 20260430-0311-02e09cc
-- name: k8s-self-managed-503459125797-dev-memcached
-  newName: 01061875164/memcached
-  newTag: 20260430-0312-02e09cc
-- name: k8s-self-managed-503459125797-dev-mysql
-  newName: 01061875164/dbmysql
-  newTag: 20260430-0925-02e09cc
->>>>>>> 400f9dc (upadte my sql yaml and ci)
