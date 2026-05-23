@@ -12,6 +12,7 @@ resources:
   - hpa/rabbitmq.yaml
   - hpa/apps.yaml
 images:
+
   - name: k8s-self-managed-503459125797-dev-apps
     newName: 01061875164/tomcatapp
     newTag: 20260430-0307-02e09cc
