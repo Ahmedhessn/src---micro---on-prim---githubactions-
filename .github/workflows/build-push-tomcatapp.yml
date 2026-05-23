@@ -13,12 +13,14 @@ permissions:
   contents: write
 
 concurrency:
-  group: k8s-bump-main
+  group: gitops-bump-main
   cancel-in-progress: false
 
 env:
   DOCKERHUB_NAMESPACE: "01061875164"
   IMAGE_REPO: "tomcatapp"
+  GITOPS_REPO: Ahmedhessn/K8s---App---Gitops---on-prim
+  GITOPS_DEPLOYMENT: K8s---App---Gitops---on-prim-main/apps/base/deployments/apps.yaml
 
 jobs:
   build-push-and-bump:
@@ -84,31 +86,42 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Bump k8s image tag
-        env:
-          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-          git pull --rebase origin main
-          npm install --no-fund --no-audit
-          node --loader ts-node/esm .github/scripts/update-kustomize-images.ts \
-            --file "k8s/kustomization.yaml" \
-            --image-tag "$IMAGE_TAG" \
-            --changed-repos "${IMAGE_REPO}"
+      - name: Checkout GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_PAT }}
+          path: gitops
+          fetch-depth: 0
 
-      - name: Commit and push if changed
+      - name: Bump GitOps deployment image
         env:
           IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
         run: |
           set -euo pipefail
+          cd gitops
+          git pull --rebase origin main
+          cd ..
+          npm install --no-fund --no-audit
+          node --loader ts-node/esm .github/scripts/update-deployment-image.ts \
+            --file "gitops/${GITOPS_DEPLOYMENT}" \
+            --image-ref "${DOCKERHUB_NAMESPACE}/${IMAGE_REPO}" \
+            --image-tag "$IMAGE_TAG"
+
+      - name: Commit and push GitOps if changed
+        env:
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          cd gitops
           if git diff --quiet; then
-            echo "No k8s changes to commit."
+            echo "No GitOps changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s/kustomization.yaml
-          git commit -m "chore(k8s): bump tomcatapp to ${IMAGE_TAG}"
+          git add "${GITOPS_DEPLOYMENT}"
+          git commit -m "chore(gitops): bump tomcatapp to ${IMAGE_TAG}"
           git push
 
   notify:

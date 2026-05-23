@@ -189,19 +189,27 @@ jobs:
           echo "Pushed:"
           echo "${{ env.DOCKERHUB_NAMESPACE }}/${{ matrix.image.repository }}:${{ needs.prep.outputs.image_tag }}"
 
-  update-k8s:
+  update-gitops:
     needs: [prep, detect-changes, build-push]
     if: ${{ needs.detect-changes.outputs.repositories != '' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
+    env:
+      GITOPS_REPO: Ahmedhessn/K8s---App---Gitops---on-prim
+      GITOPS_DEPLOY_BASE: K8s---App---Gitops---on-prim-main/apps/base/deployments
+      DOCKERHUB_NAMESPACE: "01061875164"
     steps:
-      - name: Checkout
+      - name: Checkout app repo (scripts)
         uses: actions/checkout@v4
         with:
-          # Update manifests on the main branch (GitOps-style).
-          ref: main
+          ref: ${{ needs.prep.outputs.git_sha }}
+          fetch-depth: 0
+
+      - name: Checkout GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_PAT }}
+          path: gitops
           fetch-depth: 0
 
       - name: Set up Node
@@ -209,37 +217,53 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Update k8s image tag placeholders
+      - name: Update GitOps deployment images
         env:
           IMAGE_TAG: ${{ needs.prep.outputs.image_tag }}
           CHANGED_REPOSITORIES: ${{ needs.detect-changes.outputs.repositories }}
         run: |
           set -euo pipefail
-          FILE="k8s/kustomization.yaml"
-          # Bump tags ONLY for images that were rebuilt/pushed in this run.
+          cd gitops
+          git pull --rebase origin main
+          cd ..
+          deploy_base="gitops/${GITOPS_DEPLOY_BASE}"
           npm install --no-fund --no-audit
-          node --loader ts-node/esm .github/scripts/update-kustomize-images.ts \
-            --file "$FILE" \
-            --image-tag "$IMAGE_TAG" \
-            --changed-repos "$CHANGED_REPOSITORIES"
+          IFS=',' read -ra repos <<< "$CHANGED_REPOSITORIES"
+          for repo in "${repos[@]}"; do
+            case "$repo" in
+              tomcatapp) file="${deploy_base}/apps.yaml" ;;
+              dbmysql) file="${deploy_base}/mysql.yaml" ;;
+              memcached) file="${deploy_base}/memcached.yaml" ;;
+              rabbitmq) file="${deploy_base}/rabbitmq.yaml" ;;
+              *)
+                echo "Unknown image repo: $repo"
+                exit 1
+                ;;
+            esac
+            node --loader ts-node/esm .github/scripts/update-deployment-image.ts \
+              --file "$file" \
+              --image-ref "${DOCKERHUB_NAMESPACE}/${repo}" \
+              --image-tag "$IMAGE_TAG"
+          done
 
-      - name: Commit and push if changed
+      - name: Commit and push GitOps if changed
         env:
           IMAGE_TAG: ${{ needs.prep.outputs.image_tag }}
         run: |
           set -euo pipefail
+          cd gitops
           if git diff --quiet; then
-            echo "No k8s changes to commit."
+            echo "No GitOps changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s/kustomization.yaml
-          git commit -m "chore(k8s): bump images to ${IMAGE_TAG}"
+          git add "${GITOPS_DEPLOY_BASE}/"
+          git commit -m "chore(gitops): bump images to ${IMAGE_TAG}"
           git push
 
   notify:
-    needs: [prep, detect-changes, build-push, update-k8s]
+    needs: [prep, detect-changes, build-push, update-gitops]
     # TODO: switch to Discord notification, then re-enable this job.
     if: ${{ false }}
     runs-on: ubuntu-latest
@@ -266,7 +290,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Workflow:* `${{ github.workflow }}`\n*Repo:* `${{ github.repository }}`\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Overall:* *${{ env.OVERALL_RESULT }}*\n*Jobs:* prep=`${{ needs.prep.result }}` · detect=`${{ needs.detect-changes.result }}` · build-push=`${{ needs.build-push.result }}` · update-k8s=`${{ needs.update-k8s.result }}`\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Open in GitHub Actions>"
+                    "text": "*Workflow:* `${{ github.workflow }}`\n*Repo:* `${{ github.repository }}`\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Overall:* *${{ env.OVERALL_RESULT }}*\n*Jobs:* prep=`${{ needs.prep.result }}` · detect=`${{ needs.detect-changes.result }}` · build-push=`${{ needs.build-push.result }}` · update-gitops=`${{ needs.update-gitops.result }}`\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Open in GitHub Actions>"
                   }
                 }
               ]
